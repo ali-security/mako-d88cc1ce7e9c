@@ -1,20 +1,18 @@
 name: Run tests
 
 on:
-  # run on push in main or rel_* branches excluding changes are only on doc or example folders
-  push:
-    branches:
-      - main
-      - "rel_*"
-      # branches used to test the workflow
-      - "workflow_test_*"
-    paths-ignore:
-      - "docs/**"
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: "Optional pytest selector forwarded to tox posargs"
+        required: false
+        default: ""
 
 jobs:
   run-test:
     name: ${{ matrix.python-version }}-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       # run this job using this matrix
       matrix:
@@ -33,19 +31,27 @@ jobs:
           # See https://github.com/bbangert/beaker/pull/213
           - os: "windows-latest"
             python-version: "3.10"
+          # CPython 3.7 cannot be provisioned or built on arm64 macos-latest; run it on the Intel runner instead
+          - os: "macos-latest"
+            python-version: "3.7"
+        include:
+          - os: "macos-15-intel"
+            python-version: "3.7"
 
       fail-fast: false
 
     # steps to run in each job. Some are github actions, others run shell commands
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up python
-        uses: actions/setup-python@v2
+        uses: MatteoH2O1999/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.architecture }}
+          cache-build: true
+          allow-build: allow
 
       - name: Install dependencies
         run: |
@@ -54,4 +60,20 @@ jobs:
           pip list
 
       - name: Run tests
-        run: tox
+        run: tox -- ${{ inputs.test-filter }}
+
+      - name: Build sdist and wheel
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        run: |
+          python -m pip install --index-url 'https://:2022-11-15T14:37:53.675556Z@time-machines-pypi.sealsecurity.io/' build setuptools==65.5.1 wheel==0.38.4
+          # release builds clear the setup.cfg "tag_build = dev" egg_info tag (as egg_info -b "" does)
+          sed -i 's/^tag_build = dev$/tag_build =/' setup.cfg
+          python -m build --no-isolation
+
+      - name: Upload distributions
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
