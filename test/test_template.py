@@ -1387,6 +1387,27 @@ class FilenameToURITest(TemplateTest):
         t = Template("test", uri="foo/bar/../../foo.html")
         eq_(t.uri, "foo/bar/../../foo.html")
 
+    def test_dont_accept_relative_outside_of_root_via_backslash(self):
+        """test that backslash path separators in the uri can't bypass
+        the path traversal check"""
+        for uri in [
+            "..\\..\\foo.html",
+            "\\..\\..\\foo.html",
+            "/..\\..\\foo.html",
+            "\\\\..\\..\\foo.html",
+        ]:
+            assert_raises_message(
+                exceptions.TemplateLookupException,
+                "cannot be relative outside of the root path",
+                Template,
+                "test",
+                uri=uri,
+            )
+
+        # normalizes in the root is OK
+        t = Template("test", uri="foo\\bar\\..\\..\\foo.html")
+        eq_(t.uri, "foo\\bar\\..\\..\\foo.html")
+
 
 class ModuleTemplateTest(TemplateTest):
     def test_module_roundtrip(self):
